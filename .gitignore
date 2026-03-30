@@ -1,0 +1,8 @@
+**/target/
+.idea
+*.iml
+*.class
+*Test.java
+**/test/
+# 忽略本地开发配置，防止提交密钥
+/sky-server/src/main/resources/application-dev.yml
