@@ -11,6 +11,7 @@ import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -29,6 +30,9 @@ public class SetmealController {
     @Autowired
     private RedisTemplate redisTemplate;
 
+    // 延迟二次删除时间：500 毫秒
+    private static final long DELAY_DELETE_TIME = 500;
+
     /**
      * 新增套餐
      *
@@ -40,7 +44,10 @@ public class SetmealController {
     public Result save(@RequestBody SetmealDTO setmealDTO) {
         setmealService.saveWithDish(setmealDTO);
         // 清理套餐列表缓存
-        cleanCache("setmeal_" + setmealDTO.getCategoryId());
+        String key = "setmeal_" + setmealDTO.getCategoryId();
+        cleanCache(key);
+        // 异步延迟二次删除
+        asyncDelayDelete(key);
         return Result.success();
     }
 
@@ -69,6 +76,8 @@ public class SetmealController {
         setmealService.deleteBatch(ids);
         // 清理所有套餐缓存
         cleanCache("setmeal_*");
+        // 异步延迟二次删除
+        asyncDelayDelete("setmeal_*");
         return Result.success();
     }
 
@@ -96,8 +105,13 @@ public class SetmealController {
     public Result update(@RequestBody SetmealDTO setmealDTO) {
         setmealService.update(setmealDTO);
         // 清理套餐列表缓存和套餐菜品缓存
-        cleanCache("setmeal_" + setmealDTO.getCategoryId());
-        cleanCache("setmeal_dish_" + setmealDTO.getId());
+        String listKey = "setmeal_" + setmealDTO.getCategoryId();
+        String dishKey = "setmeal_dish_" + setmealDTO.getId();
+        cleanCache(listKey);
+        cleanCache(dishKey);
+        // 异步延迟二次删除
+        asyncDelayDelete(listKey);
+        asyncDelayDelete(dishKey);
         return Result.success();
     }
 
@@ -115,9 +129,14 @@ public class SetmealController {
         // 清理套餐列表缓存和套餐菜品缓存
         SetmealVO setmealVO = setmealService.getByIdWithDish(id);
         if (setmealVO != null) {
-            cleanCache("setmeal_" + setmealVO.getCategoryId());
+            String listKey = "setmeal_" + setmealVO.getCategoryId();
+            String dishKey = "setmeal_dish_" + id;
+            cleanCache(listKey);
+            cleanCache(dishKey);
+            // 异步延迟二次删除
+            asyncDelayDelete(listKey);
+            asyncDelayDelete(dishKey);
         }
-        cleanCache("setmeal_dish_" + id);
         return Result.success();
     }
 
@@ -132,6 +151,22 @@ public class SetmealController {
         } else {
             // 精确删除
             redisTemplate.delete(pattern);
+        }
+    }
+
+    /**
+     * 异步延迟二次删除缓存
+     * @param key 缓存 key 或 pattern
+     */
+    @Async("cacheAsyncExecutor")
+    public void asyncDelayDelete(String key) {
+        try {
+            Thread.sleep(DELAY_DELETE_TIME);
+            log.info("执行延迟二次删除缓存：{}", key);
+            cleanCache(key);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("延迟删除缓存被中断：{}", key, e);
         }
     }
 }
