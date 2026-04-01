@@ -32,6 +32,13 @@ public class DishController {
     @Autowired
     private RedissonClient redissonClient;
 
+    /*
+    因为不熟悉git导致前三次提交推送都被清空了，清空的分别是项目初始代码、防缓存穿透代码、防缓存击穿代码
+    当前代码是已经实现了防缓存问题的非功能扩展了的，这里通过注释补一下
+    防缓存穿透方案是缓存空值+随机短过期时间
+    后进来的获取不到锁的线程理应轮询，这里简化了一下逻辑，sleep（100）后直接查缓存，查不到就返回空列表
+     */
+
     // 缓存基础过期时间：30 分钟
     private static final long CACHE_EXPIRE_MINUTES = 30;
     // 缓存随机偏移：10 分钟（最终范围：25~35 分钟）
