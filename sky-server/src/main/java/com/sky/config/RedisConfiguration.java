@@ -28,13 +28,16 @@ public class RedisConfiguration {
     private int redisPort;
 
     @Bean
-    public RedisTemplate redisTemplate(RedisConnectionFactory redisConnectionFactory){
+    public RedisTemplate<String, String> redisTemplate(RedisConnectionFactory redisConnectionFactory){
         log.info("开始创建 redis 模板对象...");
-        RedisTemplate redisTemplate = new RedisTemplate();
+        RedisTemplate<String, String> redisTemplate = new RedisTemplate<>();
         //设置 redis 的连接工厂对象
         redisTemplate.setConnectionFactory(redisConnectionFactory);
         //设置 redis key 的序列化器
         redisTemplate.setKeySerializer(new StringRedisSerializer());
+        //设置 hash 值 value 的序列化器（购物车使用 JSON 格式）
+        redisTemplate.setHashKeySerializer(new StringRedisSerializer());
+        redisTemplate.setHashValueSerializer(new StringRedisSerializer());
         return redisTemplate;
     }
 
