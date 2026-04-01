@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
+ * 新建配置类
  * 临时补丁：解决 Spring Boot 2.6+ 与 Springfox 空指针问题
  */
 @Configuration

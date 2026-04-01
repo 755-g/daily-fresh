@@ -39,6 +39,9 @@ public class SetmealController {
     防缓存穿透方案是缓存空值+随机短过期时间
     后进来的获取不到锁的线程理应轮询，这里简化了一下逻辑，sleep（100）后直接查缓存，查不到就返回空列表
      */
+    /*
+    其实缓存问题在这里就都解决了，防穿透加的锁就是redisson实现的分布式锁，先查数据库，有的话就写回缓存（防击穿），没的话就缓存空值（防穿透）
+     */
 
     // 缓存基础过期时间：30 分钟
     private static final long CACHE_EXPIRE_MINUTES = 30;

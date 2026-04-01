@@ -33,6 +33,7 @@ public class RedisConfiguration {
     }
 
     /**
+     * 在redis的配置类里创建 RedissonClient
      * 配置 RedissonClient，用于分布式锁
      */
     @Bean
