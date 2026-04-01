@@ -10,7 +10,7 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -26,6 +26,8 @@ public class SetmealController {
 
     @Autowired
     private SetmealService setmealService;
+    @Autowired
+    private RedisTemplate redisTemplate;
 
     /**
      * 新增套餐
@@ -35,9 +37,10 @@ public class SetmealController {
      */
     @PostMapping
     @ApiOperation("新增套餐")
-    @CacheEvict(cacheNames = "setmealCache",key = "#setmealDTO.categoryId")//key: setmealCache::100
     public Result save(@RequestBody SetmealDTO setmealDTO) {
         setmealService.saveWithDish(setmealDTO);
+        // 清理套餐列表缓存
+        cleanCache("setmeal_" + setmealDTO.getCategoryId());
         return Result.success();
     }
 
@@ -62,9 +65,10 @@ public class SetmealController {
      */
     @DeleteMapping
     @ApiOperation("批量删除套餐")
-    @CacheEvict(cacheNames = "setmealCache",allEntries = true)
     public Result delete(@RequestParam List<Long> ids) {
         setmealService.deleteBatch(ids);
+        // 清理所有套餐缓存
+        cleanCache("setmeal_*");
         return Result.success();
     }
 
@@ -89,9 +93,11 @@ public class SetmealController {
      */
     @PutMapping
     @ApiOperation("修改套餐")
-    @CacheEvict(cacheNames = "setmealCache",allEntries = true)
     public Result update(@RequestBody SetmealDTO setmealDTO) {
         setmealService.update(setmealDTO);
+        // 清理套餐列表缓存和套餐菜品缓存
+        cleanCache("setmeal_" + setmealDTO.getCategoryId());
+        cleanCache("setmeal_dish_" + setmealDTO.getId());
         return Result.success();
     }
 
@@ -104,9 +110,28 @@ public class SetmealController {
      */
     @PostMapping("/status/{status}")
     @ApiOperation("套餐起售停售")
-    @CacheEvict(cacheNames = "setmealCache",allEntries = true)
     public Result startOrStop(@PathVariable Integer status, Long id) {
         setmealService.startOrStop(status, id);
+        // 清理套餐列表缓存和套餐菜品缓存
+        SetmealVO setmealVO = setmealService.getByIdWithDish(id);
+        if (setmealVO != null) {
+            cleanCache("setmeal_" + setmealVO.getCategoryId());
+        }
+        cleanCache("setmeal_dish_" + id);
         return Result.success();
+    }
+
+    /**
+     * 清理缓存数据
+     * @param pattern
+     */
+    private void cleanCache(String pattern) {
+        if (pattern.contains("*")) {
+            // 模糊匹配
+            redisTemplate.delete(redisTemplate.keys(pattern));
+        } else {
+            // 精确删除
+            redisTemplate.delete(pattern);
+        }
     }
 }

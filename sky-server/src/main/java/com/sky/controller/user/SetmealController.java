@@ -142,15 +142,16 @@ public class SetmealController {
     }
 
     /**
-     * 根据套餐id查询包含的菜品列表
+     * 根据套餐 id 查询包含的菜品列表
      *
      * @param id
      * @return
      */
     @GetMapping("/dish/{id}")
-    @ApiOperation("根据套餐id查询包含的菜品列表")
+    @ApiOperation("根据套餐 id 查询包含的菜品列表")
     public Result<List<DishItemVO>> dishList(@PathVariable("id") Long id) {
-        List<DishItemVO> list = setmealService.getDishItemById(id);
+        // 使用带缓存保护的方法
+        List<DishItemVO> list = setmealService.getDishItemByIdWithCache(id);
         return Result.success(list);
     }
 }

@@ -21,10 +21,15 @@ import com.sky.vo.SetmealVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 套餐业务实现
@@ -39,6 +44,23 @@ public class SetmealServiceImpl implements SetmealService {
     private SetmealDishMapper setmealDishMapper;
     @Autowired
     private DishMapper dishMapper;
+    @Autowired
+    private RedisTemplate redisTemplate;
+    @Autowired
+    private RedissonClient redissonClient;
+
+    // 缓存基础过期时间：30 分钟
+    private static final long CACHE_EXPIRE_MINUTES = 30;
+    // 缓存随机偏移：10 分钟（最终范围：25~35 分钟）
+    private static final long CACHE_RANDOM_MINUTES = 10;
+    // 空值缓存基础过期时间：40 秒（防穿透）
+    private static final long CACHE_NULL_EXPIRE_SECONDS = 40;
+    // 空值缓存随机偏移：40 秒（最终范围：40~80 秒）
+    private static final long CACHE_NULL_RANDOM_SECONDS = 40;
+    // 互斥锁等待时间（秒）
+    private static final long LOCK_WAIT_TIME = 5;
+    // 互斥锁持有时间（秒）
+    private static final long LOCK_LEASE_TIME = 10;
 
     /**
      * 新增套餐，同时需要保存套餐和菜品的关联关系
@@ -179,11 +201,84 @@ public class SetmealServiceImpl implements SetmealService {
     }
 
     /**
-     * 根据id查询菜品选项
+     * 根据 id 查询菜品选项
      * @param id
      * @return
      */
     public List<DishItemVO> getDishItemById(Long id) {
         return setmealMapper.getDishItemBySetmealId(id);
+    }
+
+    /**
+     * 根据 id 查询菜品选项 (带缓存保护)
+     * @param id
+     * @return
+     */
+    public List<DishItemVO> getDishItemByIdWithCache(Long id) {
+        String key = "setmeal_dish_" + id;
+        
+        // 1. 查询缓存
+        List<DishItemVO> list = (List<DishItemVO>) redisTemplate.opsForValue().get(key);
+        if (list != null && !list.isEmpty()) {
+            log.info("缓存命中，key:{}", key);
+            return list;
+        }
+        
+        // 2. 缓存空值检查
+        if (redisTemplate.hasKey(key)) {
+            log.info("缓存命中空值，key:{}", key);
+            return new ArrayList<>();
+        }
+        
+        // 3. 获取互斥锁
+        RLock lock = redissonClient.getLock("lock:" + key);
+        boolean isLocked = false;
+        try {
+            isLocked = lock.tryLock(LOCK_WAIT_TIME, LOCK_LEASE_TIME, TimeUnit.SECONDS);
+            if (isLocked) {
+                log.info("获取锁成功，查询数据库，key:{}", key);
+                
+                // 双重检查缓存
+                list = (List<DishItemVO>) redisTemplate.opsForValue().get(key);
+                if (list != null && !list.isEmpty()) {
+                    return list;
+                }
+                
+                // 查询数据库
+                list = setmealMapper.getDishItemBySetmealId(id);
+                
+                if (list == null || list.isEmpty()) {
+                    // 缓存空值
+                    log.info("数据库查询为空，缓存空值，key:{}", key);
+                    long randomExpire = CACHE_NULL_EXPIRE_SECONDS + (long)(Math.random() * CACHE_NULL_RANDOM_SECONDS);
+                    redisTemplate.opsForValue().set(key, new ArrayList<>(), randomExpire, TimeUnit.SECONDS);
+                } else {
+                    // 正常缓存
+                    log.info("数据库查询成功，缓存数据，key:{}, size:{}", key, list.size());
+                    long randomOffset = (long)(Math.random() * CACHE_RANDOM_MINUTES) - 5;
+                    long finalExpire = CACHE_EXPIRE_MINUTES + randomOffset;
+                    redisTemplate.opsForValue().set(key, list, finalExpire, TimeUnit.MINUTES);
+                }
+            } else {
+                // 未获取到锁，休眠后重试
+                log.info("未获取到锁，稍后重试，key:{}", key);
+                Thread.sleep(100);
+                list = (List<DishItemVO>) redisTemplate.opsForValue().get(key);
+                if (list == null) {
+                    list = new ArrayList<>();
+                }
+            }
+        } catch (InterruptedException e) {
+            log.error("获取锁异常，key:{}", key, e);
+            Thread.currentThread().interrupt();
+            list = new ArrayList<>();
+        } finally {
+            if (isLocked && lock.isHeldByCurrentThread()) {
+                lock.unlock();
+                log.info("释放锁，key:{}", key);
+            }
+        }
+        
+        return list;
     }
 }
